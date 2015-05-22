@@ -1,0 +1,135 @@
+---
+title: 'Coursera Data Science Class #8, Practical Machine Learning'
+output:
+  html_document:
+    keep_md: yes
+  pdf_document: default
+  word_document: default
+---
+Practical Machine Learning: Course Project; Robert Ross; 2015.05.24
+
+## Summary
+This project allows us to take both training and test data from a study using accelerometers placed on the belt, forearm, arm, and dumbells used by 6 participants who were asked to perform barbell lifts correctly and incorrectly in 5 different ways. The website at  http://groupware.les.inf.puc-rio.br/har contains more information for the study by:
+
+*Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.*
+
+We are trying, per Professor Leek's instructions, to "predict the manner in which they did the exercise." 
+The 5 possible methods are:
+
+- A: exactly according to the specification
+- B: throwing the elbows to the front
+- C: lifting the dumbbell only halfway
+- D: lowering the dumbbell only halfway
+- E: throwing the hips to the front
+  
+  
+  
+## Setup and Data Processing
+  
+  
+If we haven't retrieved the files yet (first time), download and save them, then load them into memory.
+```{r}
+setwd("~/Coursera/8-Practical Machine Learning/Course Project/")
+if (!file.exists("./data/pml-training.csv")){
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+                  "./data/pml-training.csv")
+    }
+if (!file.exists("./data/pml-testing.csv")){
+    download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+                  "./data/pml-testing.csv")
+    }
+data_training_raw = read.csv("./data/pml-training.csv", na.strings = c("NA", ""))
+data_testing_raw  = read.csv("./data/pml-testing.csv", na.strings = c("NA", ""))
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(randomForest)
+```
+
+### A quick exploratory data analysis.
+
+Let's take a quick look at our datasets:
+
+```{r}
+dim(data_training_raw)
+dim(data_testing_raw)
+```
+
+  
+### Data Cleanup
+
+It's good that both the training and testing datasets have the same number columns, but there are a large number of variables with NA values or no data - the test below shows 100 columns without enough data to be useful, so we'll eliminate them (in both the training & testing datasets) as they make fairly useless predictors. The first 7 columns (*user_name, raw_timestamp_part_1, raw_timestamp_part_,2 cvtd_timestamp, new_window, and  num_window*) are also irrelevant for this project, so we'll delete these variables.
+
+
+```{r}
+test_for_na <- sapply(data_training_raw, function(x) {sum(is.na(x))})
+table(test_for_na)
+cols_nodata <- names(test_for_na[test_for_na==19216])
+data_training_goodcols <- data_training_raw[, !names(data_training_raw) %in% cols_nodata]
+data_testing_goodcols <- data_testing_raw[, !names(data_testing_raw) %in% cols_nodata]
+data_training_goodcols <- data_training_goodcols[,-c(1:7)]
+data_testing_goodcols <- data_testing_goodcols[,-c(1:7)]
+str(data_training_goodcols)
+```
+  
+
+### Cross Validation
+
+We will divide the training set into two parts, 60% for training the model and the remaining 40% for cross validating the result.
+  
+
+```{r}
+set.seed(1248)
+inTrain = createDataPartition(data_training_goodcols$classe, p = 0.6, list=FALSE)
+data_training = data_training_goodcols[inTrain,]
+data_crossvalidate = data_training_goodcols[-inTrain,]
+```
+  
+  
+### First model - Decision Tree
+  
+Our first model to predict *classe* will use a decision tree on the remaining variables. 
+After training the model using the first 60% of the training data, we can test the accuracy using the remaining 40% as testing data. 
+
+  
+```{r}
+model_1 <- rpart(classe ~ ., data=data_training, method="class")
+prediction_1 <- predict(model_1, data_crossvalidate, type = "class")
+#rpart.plot(model_1, main="Decision Tree", extra=102, under=TRUE, faclen=0)
+rpart.plot(model_1, main="Decision Tree")
+
+confusionMatrix(prediction_1, data_crossvalidate$classe)
+```  
+      
+  
+### Second model - Random Forest
+  
+Our second model to predict *classe* will use the random forest method. 
+
+  
+```{r}
+model_2 <- randomForest(classe ~. , data=data_training, method="class")
+prediction_2 <- predict(model_2, data_crossvalidate, type = "class")
+confusionMatrix(prediction_2, data_crossvalidate$classe)
+```  
+    
+### Which model to choose, and Out of Sample Error
+The Random Forest algorithm gave us a much better result than Decision Trees (not a big surprise). The  Random Forest model accuracy was 0.994 compared to only 0.719 for the Decision Tree model. Assuming we choose the better Random Forest model, the expected out-of-sample error is estimated at 0.005, or 0.5% (calculated as 1 - accuracy for the model predictions made against the cross-validation dataset).
+
+
+
+### Submission part of project
+  
+```{r}
+testing_predictions <- predict(model_2, data_testing_goodcols)
+testing_predictions
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(testing_predictions)
+```  
